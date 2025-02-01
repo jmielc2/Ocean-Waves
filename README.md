@@ -11,3 +11,4 @@
 - https://wikiwaves.org/Ocean-Wave_Spectra
 - https://github.com/iamyoukou/fftWater?tab=readme-ov-file
 - https://www.youtube.com/watch?v=ClW3fo94KR4
+- https://www.youtube.com/watch?v=kGEqaX4Y4bQ
