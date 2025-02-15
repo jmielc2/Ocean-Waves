@@ -9,6 +9,11 @@ public class WaveHeightGenerator : MonoBehaviour {
         CreateDisplayQuad();
     }
 
+    void OnDestroy() {
+        Destroy(displayQuad);
+        Destroy(displayMaterial);
+    }
+
     private void CreateDisplayQuad() {
         // Create a quad
         displayQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
