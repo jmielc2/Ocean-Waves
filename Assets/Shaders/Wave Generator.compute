@@ -1,34 +1,68 @@
-#pragma kernel CSMain
+#pragma kernel InitializeSpectrum
 
-const float PI = 3.14159;
+const float PI = 3.14159265358979323846;
 const float F = 100000.0;
 const float U = 5.0;
+const float G = 9.8;
 
-RWStructuredBuffer<float> result;
+RWTexture2D<float4> initial_spectrum;
+uniform uint u_N;
+uniform float u_scale;
 
-float Jonswap(float f) {
-    const float g = 9.8;
-    const float g_recip = 1.0 / g;
-    const float pi_recip = 1.0 / PI;
-    const float F_recip = 1.0 / F;
-    const float f_max = 11.0 * pi_recip * pow(g * g * F_recip / U, 1.0 / 3.0);
-    const float f_max_recip = 1 / f_max;
-    const float f_recip = 1.0 / f;
-    const float f_ratio = f_max / f;
-    const float f_diff = f - f_max;
-    const float s = (f < f_max) ? 1.0 / 0.07 : 1.0 / 0.09;
-    const float a = 0.076 * pow(U * U * F_recip * g_recip, 0.22);
-    const float b = (1.0 / 16.0) * pi_recip * pi_recip * pi_recip * pi_recip;
+// Huga Elias integer hash
+float hash(uint n) {
+    n = (n << 13U) ^ n;
+    n = n * (n * n * 15731U + 0x789221U) + 0x1376312589U;
+    return float(n & uint(0x7fffffffU)) / float(0x7fffffff);
+}
 
-    float result = a * g * g * f_recip * f_recip * f_recip * f_recip * f_recip * b;
-    result *= exp((-5 / 4) * f_ratio * f_ratio * f_ratio * f_ratio);
-    const float r = exp(-1.0 * f_diff * f_diff * 0.5 * s * s * f_max_recip * f_max_recip);
-    result *= pow(3.3, r);
-    return result;
+// Box Muller transform
+float2 UniformToGaussianDistribution(float u1, float u2) {
+    float R = sqrt(-2.0f * log(u1));
+    float theta = 2.0f * PI * u2;
+    return float2(R * cos(theta), R * sin(theta));
+}
+
+float Jonswap(float ang_frequency) {
+    const float inv_F = 1.0 / F;
+    const float inv_G = 1.0 / G;
+    const float inv_U = 1.0 / U;
+    const float inv_ang_frequency = 1 / ang_frequency;
+    const float alpha = 0.076 * pow(U * U * inv_F * inv_G, 0.22);
+    const float peak_ang_frequency = 22 * pow(G * G * inv_U * inv_F, 0.333);
+    const float inv_peak_ang_frequency = 1 / peak_ang_frequency;
+    const float gamma = 3.3;
+    const float inv_variance = 1.0 / (ang_frequency <= peak_ang_frequency) ? 0.07 : 0.09;
+    const float frequency_diff = ang_frequency - peak_ang_frequency;
+    const float frequency_ratio = peak_ang_frequency / ang_frequency;
+    const float r = exp(-0.5 * frequency_diff * frequency_diff * inv_variance * inv_variance * inv_variance * inv_peak_ang_frequency * inv_peak_ang_frequency);
+    const float spectrum = alpha * G * G * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * exp(-1.25 * frequency_ratio * frequency_ratio * frequency_ratio * frequency_ratio);
+    return spectrum * pow(gamma, r);
 }
 
 [numthreads(8, 8, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID) {
-    float a = Jonswap(id.x);
-    result[id.x * 8 + id.y] = a;
+void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
+    const uint seed = id.y * u_N + id.x;
+    const int2 wavevector = id.xy - (u_N / 2);
+    const float magnitude = length(wavevector);
+    const float2 direction = wavevector / magnitude;
+    const float4 gaussians = float4(
+        UniformToGaussianDistribution(hash(seed), hash(seed * 2)),
+        UniformToGaussianDistribution(hash(seed * 3), hash(seed * 4))
+    );
+    const float ang_frequency = sqrt(G * magnitude);
+    const float spectrum = sqrt(0.5 * Jonswap(ang_frequency));
+    const float2 amplitude = gaussians.zy * spectrum;
+    
+    if (amplitude.x == 0.0001)
+    {
+        initial_spectrum[id.xy] = float4(1, 0, 1, 1);
+    }
+    else
+    {
+        initial_spectrum[id.xy] = float4(amplitude, 0, 1);
+    }
+    
+    // const float val = magnitude / (u_N * sqrt(2));
+    // initial_spectrum[id.xy] = float4(1, 0, 1, 1);
 }
