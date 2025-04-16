@@ -1,13 +1,13 @@
 #pragma kernel InitializeSpectrum
 
 const float PI = 3.14159265358979323846;
-const float F = 100000.0;
-const float U = 5.0;
 const float G = 9.8;
 
 RWTexture2D<float4> initial_spectrum;
 uniform uint u_N;
-uniform float u_scale;
+uniform uint u_L;
+uniform float2 u_wind_direction;
+uniform float u_wind_speed;
 
 // Huga Elias integer hash
 float hash(uint n) {
@@ -23,46 +23,39 @@ float2 UniformToGaussianDistribution(float u1, float u2) {
     return float2(R * cos(theta), R * sin(theta));
 }
 
-float Jonswap(float ang_frequency) {
-    const float inv_F = 1.0 / F;
-    const float inv_G = 1.0 / G;
-    const float inv_U = 1.0 / U;
-    const float inv_ang_frequency = 1 / ang_frequency;
-    const float alpha = 0.076 * pow(U * U * inv_F * inv_G, 0.22);
-    const float peak_ang_frequency = 22 * pow(G * G * inv_U * inv_F, 0.333);
-    const float inv_peak_ang_frequency = 1 / peak_ang_frequency;
-    const float gamma = 3.3;
-    const float inv_variance = 1.0 / (ang_frequency <= peak_ang_frequency) ? 0.07 : 0.09;
-    const float frequency_diff = ang_frequency - peak_ang_frequency;
-    const float frequency_ratio = peak_ang_frequency / ang_frequency;
-    const float r = exp(-0.5 * frequency_diff * frequency_diff * inv_variance * inv_variance * inv_variance * inv_peak_ang_frequency * inv_peak_ang_frequency);
-    const float spectrum = alpha * G * G * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * inv_ang_frequency * exp(-1.25 * frequency_ratio * frequency_ratio * frequency_ratio * frequency_ratio);
-    return spectrum * pow(gamma, r);
+float PhillipsSpectrum(float2 wavevector) {
+    const float L = u_wind_speed * u_wind_speed / G;
+    const float k = length(wavevector);
+    const float inv_k = 1.0 / k;
+    const float2 direction = wavevector / k;
+    const float inv_k_times_L = 1.0 * inv_k / L;
+    const float wind_dot_wavedirection = dot(u_wind_direction, direction);
+    return 0.0081 * exp(-1.0 * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
+}
+
+float ShortWaveSuppressionFactor(float2 wavevector) {
+    const float threshold = 0.1;
+    const float k = length(wavevector);
+    if (k < threshold)
+    {
+        return exp(-1.0 * k * k * threshold * threshold);
+    }
+    return 1.0;
 }
 
 [numthreads(8, 8, 1)]
 void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const uint seed = id.y * u_N + id.x;
-    const int2 wavevector = id.xy - (u_N / 2);
-    const float magnitude = length(wavevector);
-    const float2 direction = wavevector / magnitude;
+    float halfN = u_N / 2.0f;
+
+    float deltaK = 2.0f * PI / u_L;
+    float2 K = (id.xy - halfN) * deltaK;
     const float4 gaussians = float4(
         UniformToGaussianDistribution(hash(seed), hash(seed * 2)),
         UniformToGaussianDistribution(hash(seed * 3), hash(seed * 4))
     );
-    const float ang_frequency = sqrt(G * magnitude);
-    const float spectrum = sqrt(0.5 * Jonswap(ang_frequency));
-    const float2 amplitude = gaussians.zy * spectrum;
-    
-    if (amplitude.x == 0.0001)
-    {
-        initial_spectrum[id.xy] = float4(1, 0, 1, 1);
-    }
-    else
-    {
-        initial_spectrum[id.xy] = float4(amplitude, 0, 1);
-    }
-    
-    // const float val = magnitude / (u_N * sqrt(2));
-    // initial_spectrum[id.xy] = float4(1, 0, 1, 1);
+    const float spectrum = PhillipsSpectrum(K);
+    float amplitude = sqrt(0.5 * spectrum) * 100.0;
+    float val = K.x / 13.0;
+    initial_spectrum[id.xy] = float4(val, 0, 0, 1);
 }
