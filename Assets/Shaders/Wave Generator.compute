@@ -1,9 +1,11 @@
 #pragma kernel InitializeSpectrum
+#pragma kernel GenerateHeightSpectrum
 
 #define PI 3.14159265358979323846
 #define G 9.8
 
-RWTexture2D<float4> initial_spectrum;
+RWTexture2D<float2> spectrum_texture;
+RWTexture2D<float> height_texture;
 uniform uint u_N;
 uniform float u_L;
 uniform float2 u_wind_direction;
@@ -26,11 +28,11 @@ float2 UniformToGaussianDistribution(float u1, float u2) {
 float PhillipsSpectrum(float2 wavevector) {
     const float L = u_wind_speed * u_wind_speed / G;
     const float k = length(wavevector);
-    const float inv_k = 1.0 / k;
+    const float inv_k = 1.0f / k;
     const float2 direction = wavevector / k;
-    const float inv_k_times_L = 1.0 * inv_k / L;
+    const float inv_k_times_L = 1.0f * inv_k / L;
     const float wind_dot_wavedirection = dot(u_wind_direction, direction);
-    return 0.0081 * exp(-1.0 * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
+    return 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
 }
 
 float ShortWaveSuppressionFactor(float2 wavevector) {
@@ -43,14 +45,24 @@ float ShortWaveSuppressionFactor(float2 wavevector) {
     return 1.0;
 }
 
+/*
+* Kernel Functions
+*/
+
 [numthreads(8, 8, 1)]
 void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const uint seed = id.y * u_N + id.x;
     float scalar = 2.0f * PI / u_L;
     float2 wavevector = (id.xy - (u_N * 0.5f)) * scalar;
     const float2 gaussians = UniformToGaussianDistribution(hash(seed), hash(seed * 2));
-    const float spectrum = PhillipsSpectrum(wavevector);
-    float amplitude = sqrt(0.5 * spectrum) * gaussians;
+    const float spectrum = PhillipsSpectrum(wavevector) * ShortWaveSuppressionFactor(wavevector);
+    // const float spectrum = JonswapSpectrum(wavevector);
+    float2 amplitudes = sqrt(0.5f * spectrum) * gaussians * 100.0f;
     
-    initial_spectrum[id.xy] = float4(amplitude, 0, 0, 1);
+    spectrum_texture[id.xy] = amplitudes;
+}
+
+[numthreads(8, 8, 1)]
+void GenerateHeightSpectrum(uint3 id : SV_DispatchThreadID) {
+    height_texture[id.xy] = 0.5f;
 }
