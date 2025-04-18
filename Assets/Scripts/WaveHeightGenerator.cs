@@ -25,7 +25,7 @@ public class WaveHeightGenerator : MonoBehaviour {
         if (!compute_configured) {
             compute.SetTexture(init_spectrum_kernel, "initial_spectrum", spectrum_texture);
             compute.SetInt("u_N", N);
-            compute.SetInt("u_L", 256);
+            compute.SetFloat("u_L", 256f);
             compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
             compute.SetFloat("u_wind_speed", 5f);
             compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);

@@ -1,11 +1,11 @@
 #pragma kernel InitializeSpectrum
 
-const float PI = 3.14159265358979323846;
-const float G = 9.8;
+#define PI 3.14159265358979323846
+#define G 9.8
 
 RWTexture2D<float4> initial_spectrum;
 uniform uint u_N;
-uniform uint u_L;
+uniform float u_L;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
 
@@ -46,16 +46,11 @@ float ShortWaveSuppressionFactor(float2 wavevector) {
 [numthreads(8, 8, 1)]
 void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const uint seed = id.y * u_N + id.x;
-    float halfN = u_N / 2.0f;
-
-    float deltaK = 2.0f * PI / u_L;
-    float2 K = (id.xy - halfN) * deltaK;
-    const float4 gaussians = float4(
-        UniformToGaussianDistribution(hash(seed), hash(seed * 2)),
-        UniformToGaussianDistribution(hash(seed * 3), hash(seed * 4))
-    );
-    const float spectrum = PhillipsSpectrum(K);
-    float amplitude = sqrt(0.5 * spectrum) * 100.0;
-    float val = K.x / 13.0;
-    initial_spectrum[id.xy] = float4(val, 0, 0, 1);
+    float scalar = 2.0f * PI / u_L;
+    float2 wavevector = (id.xy - (u_N * 0.5f)) * scalar;
+    const float2 gaussians = UniformToGaussianDistribution(hash(seed), hash(seed * 2));
+    const float spectrum = PhillipsSpectrum(wavevector);
+    float amplitude = sqrt(0.5 * spectrum) * gaussians;
+    
+    initial_spectrum[id.xy] = float4(amplitude, 0, 0, 1);
 }
