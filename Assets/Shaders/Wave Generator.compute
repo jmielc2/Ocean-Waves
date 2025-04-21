@@ -35,14 +35,13 @@ float PhillipsSpectrum(float2 wavevector) {
     return 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
 }
 
-float ShortWaveSuppressionFactor(float2 wavevector) {
-    const float threshold = 0.5;
+float ShortWaveSuppressionFactor(float2 wavevector, float threshold, float falloff = 1.0f) {
     const float k = length(wavevector);
-    if (k < threshold)
-    {
-        return exp(-1.0 * k * k * threshold * threshold);
+    if (k >= threshold) {
+        const float diff = (k - threshold) / falloff;
+        return exp(-1.0f * diff * diff);
     }
-    return 1.0;
+    return 1.0f;
 }
 
 /*
@@ -53,11 +52,12 @@ float ShortWaveSuppressionFactor(float2 wavevector) {
 void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const uint seed = id.y * u_N + id.x;
     float scalar = 2.0f * PI / u_L;
-    float2 wavevector = (id.xy - (u_N * 0.5f)) * scalar;
+    const float threshold = u_N * 0.5f * scalar;
+    const float2 wavevector = id.xy * scalar - threshold;
     const float2 gaussians = UniformToGaussianDistribution(hash(seed), hash(seed * 2));
-    const float spectrum = PhillipsSpectrum(wavevector) * ShortWaveSuppressionFactor(wavevector);
+    const float spectrum = PhillipsSpectrum(wavevector) * ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
     // const float spectrum = JonswapSpectrum(wavevector);
-    float2 amplitudes = sqrt(0.5f * spectrum) * gaussians * 100.0f;
+    float2 amplitudes = sqrt(0.5f * spectrum) * gaussians;
     
     spectrum_texture[id.xy] = amplitudes;
 }
