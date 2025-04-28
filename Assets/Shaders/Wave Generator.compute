@@ -6,13 +6,15 @@
 
 RWTexture2D<float2> spectrum_texture;
 RWTexture2D<float> height_texture;
+RWTexture2D<float4> butterfly_texture;
 uniform uint u_N;
+uniform uint u_log2N;
 uniform float u_L;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
 
 // Huga Elias integer hash
-float hash(uint n) {
+float Hash(uint n) {
     n = (n << 13U) ^ n;
     n = n * (n * n * 15731U + 0x789221U) + 0x1376312589U;
     return float(n & uint(0x7fffffffU)) / float(0x7fffffff);
@@ -54,12 +56,65 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     float scalar = 2.0f * PI / u_L;
     const float threshold = u_N * 0.5f * scalar;
     const float2 wavevector = id.xy * scalar - threshold;
-    const float2 gaussians = UniformToGaussianDistribution(hash(seed), hash(seed * 2));
+    const float2 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2));
     const float spectrum = PhillipsSpectrum(wavevector) * ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
     // const float spectrum = JonswapSpectrum(wavevector);
     float2 amplitudes = sqrt(0.5f * spectrum) * gaussians;
     
     spectrum_texture[id.xy] = amplitudes;
+}
+
+float2 ComplexAdd(float2 a, float2 b) {
+    return a + b;
+}
+
+float2 ComplexMul(float2 a, float2 b) {
+    return float2((a.x * b.x) - (a.y * b.y), (a.x * b.y) + (a.y * b.x));
+}
+
+// Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
+int ReverseBits(int v, int num_bits = 16) {
+    v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
+    v = ((v >> 2) & 0x33333333) | ((v & 0x33333333) << 2);
+    v = ((v >> 4) & 0x0F0F0F0F) | ((v & 0x0F0F0F0F) << 4);
+    v = ((v >> 8) & 0x00FF00FF) | ((v & 0x00FF00FF) << 8);
+    return v >> (16 - num_bits);
+}
+
+[numthreads(1, 64, 1)]
+void GenerateButterflyTexture(uint3 id : SV_DispatchThreadID) {
+    const float N = float(u_N);
+    const int butterflyspan = pow(2.0f, id.x);
+    const float butterflyspan_doubled = butterflyspan * 2.0f;
+    const float k = fmod(id.y * N / butterflyspan_doubled, N);
+    const float euler_exponent = 2.0f * PI * k / N;
+    const float2 twiddle = float2(cos(euler_exponent), sin(euler_exponent));
+    bool isTopWing = false;
+    if (fmod(id.y, butterflyspan_doubled) < butterflyspan) {
+        isTopWing = true;
+    }
+    
+    if (id.x == 0) { // First iteration is special with the indices we add together
+        int num_bits = log2(N);
+        int a = id.y;
+        if (isTopWing) {
+            int b = id.y + 1;
+            butterfly_texture[id.xy] = float4(twiddle, float(ReverseBits(a, num_bits)), float(ReverseBits(b, num_bits)));
+        } else {
+            int b = id.y - 1;
+            butterfly_texture[id.xy] = float4(twiddle, float(ReverseBits(b, num_bits)), float(ReverseBits(a, num_bits)));
+        }
+    } else {
+        if (isTopWing) {
+            butterfly_texture[id.xy] = float4(twiddle, id.y, id.y + butterflyspan);
+        } else {
+            butterfly_texture[id.xy] = float4(twiddle, id.y - butterflyspan, id.y);
+        }
+    }
+}
+
+void CooleyTukeyFFT() {
+    
 }
 
 [numthreads(8, 8, 1)]
