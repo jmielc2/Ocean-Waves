@@ -1,6 +1,8 @@
 #pragma kernel InitializeSpectrum
 #pragma kernel GenerateButterflyTexture
-#pragma kernel GenerateHeightSpectrum
+#pragma kernel CycleThroughTime
+#pragma kernel HorizontalIFFT
+#pragma kernel VerticalIFFT
 
 #define PI 3.14159265358979323846
 #define G 9.8
@@ -8,12 +10,18 @@
 RWTexture2D<float4> spectrum_texture;
 RWTexture2D<float2> fourier_texture;
 RWTexture2D<float> height_texture;
+
 RWTexture2D<float4> butterfly_texture;
+RWTexture2D<float2> pingpong0;
+RWTexture2D<float2> pingpong1;
+
 uniform uint u_N;
 uniform float u_L;
 uniform float u_time;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
+uniform int pingpong_direction;
+uniform int pingpong_iteration;
 
 // Huga Elias integer hash
 float Hash(uint n) {
@@ -96,7 +104,7 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     const float magnitude = length(wavevector);
     const float w = sqrt(magnitude * G);
     const float4 amplitudes = spectrum_texture[id.xy];
-    const float2 euler_formula = float2(cos(w * t), sin(w * t));
+    const float2 euler_formula = float2(cos(w * u_time), sin(w * u_time));
     const float2 euler_formula_conj = ComplexConj(euler_formula);
 
     fourier_texture[id.xy] = ComplexMul(amplitudes.xy, euler_formula) + ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj);
@@ -134,11 +142,13 @@ void GenerateButterflyTexture(uint3 id : SV_DispatchThreadID) {
     }
 }
 
-void CooleyTukeyFFT() {
-    
+[numthreads(64, 1, 1)]
+void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
+
 }
 
-[numthreads(8, 8, 1)]
-void GenerateHeightSpectrum(uint3 id : SV_DispatchThreadID) {
-    height_texture[id.xy] = 0.5f;
+[numthreads(64, 1, 1)]
+void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
+
 }
+

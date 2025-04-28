@@ -6,6 +6,7 @@ public class WaveHeightGenerator : MonoBehaviour {
     public RenderTexture spectrum_texture;
     public RenderTexture height_texture;
     public RenderTexture butterfly_texture;
+    public RenderTexture fourier_texture;
 
     [Range(64, 1024)]
     public int N;
@@ -14,17 +15,22 @@ public class WaveHeightGenerator : MonoBehaviour {
     private bool compute_configured = false;
     private const int init_spectrum_kernel = 0;
     private const int generate_butterfly_texture_kernel = 1;
-    private const int generate_height_spectrum_kernel = 2;
+    private const int cycle_through_time = 2;
+    private const int horizontal_ifft = 3;
+    private const int vertical_ifft = 4;
 
     void Start() {
         N_times_N_log2 = (int)Mathf.Log(N * N, 2.0f);
         CreateSpectrumTexture();
         CreateButterflyTexture();
+        CreateFourierTexture();
         CreateHeightTexture();
     }
 
     void OnDestroy() {
         spectrum_texture.Release();
+        butterfly_texture.Release();
+        fourier_texture.Release();
         height_texture.Release();
     }
 
@@ -32,16 +38,18 @@ public class WaveHeightGenerator : MonoBehaviour {
         if (!compute_configured) {
             compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
             compute.SetTexture(generate_butterfly_texture_kernel, "butterfly_texture", butterfly_texture);
-            compute.SetTexture(generate_height_spectrum_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(generate_height_spectrum_kernel, "butterfly_texture", butterfly_texture);
-            compute.SetTexture(generate_height_spectrum_kernel, "height_texture", height_texture);
             compute.SetInt("u_N", N);
             compute.SetFloat("u_L", 256f);
+            compute.SetFloat("u_time", Time.time);
             compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
             compute.SetFloat("u_wind_speed", 5f);
             compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
             compute.Dispatch(generate_butterfly_texture_kernel, N_times_N_log2, N * N / 64, 1);
-            compute.Dispatch(generate_height_spectrum_kernel, N / 8, N / 8, 1);
+            compute.Dispatch(cycle_through_time, N / 8, N / 8, 1);
+            // Do Horizontal and Vertical IFFTs
+            int pingpong_iteration = 0;
+            int pingpong_direction = 0;
+            
             compute_configured = true;
         }
     }
