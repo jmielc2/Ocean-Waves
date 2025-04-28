@@ -5,11 +5,13 @@
 #define PI 3.14159265358979323846
 #define G 9.8
 
-RWTexture2D<float2> spectrum_texture;
+RWTexture2D<float4> spectrum_texture;
+RWTexture2D<float2> fourier_texture;
 RWTexture2D<float> height_texture;
 RWTexture2D<float4> butterfly_texture;
 uniform uint u_N;
 uniform float u_L;
+uniform float u_time;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
 
@@ -21,10 +23,10 @@ float Hash(uint n) {
 }
 
 // Box Muller transform
-float2 UniformToGaussianDistribution(float u1, float u2) {
-    float R = sqrt(-2.0f * log(u1));
-    float theta = 2.0f * PI * u2;
-    return float2(R * cos(theta), R * sin(theta));
+float2 UniformToGaussianDistribution(float u1, float u2, float u3, float u4) {
+    float2 R = float2(sqrt(-2.0f * log(u1)), sqrt(-2.0f * log(u3)));
+    float2 theta = float2(2.0f * PI * u2, 2.0f * PI * u4);
+    return float4(R.x * cos(theta.x), R.x * sin(theta.x), R.y * cos(theta.y), R.y * sin(theta.y));
 }
 
 float PhillipsSpectrum(float2 wavevector) {
@@ -46,19 +48,20 @@ float ShortWaveSuppressionFactor(float2 wavevector, float threshold, float fallo
     return 1.0f;
 }
 
-float2 ComplexAdd(float2 a, float2 b)
-{
+float2 ComplexAdd(float2 a, float2 b) {
     return a + b;
 }
 
-float2 ComplexMul(float2 a, float2 b)
-{
+float2 ComplexMul(float2 a, float2 b) {
     return float2((a.x * b.x) - (a.y * b.y), (a.x * b.y) + (a.y * b.x));
 }
 
+float2 ComplexConj(float2 a) {
+    return float2(a.x, -1.0f * a.y);
+}
+
 // Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
-int ReverseBits(int v, int num_bits = 16)
-{
+int ReverseBits(int v, int num_bits = 16) {
     v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
     v = ((v >> 2) & 0x33333333) | ((v & 0x33333333) << 2);
     v = ((v >> 4) & 0x0F0F0F0F) | ((v & 0x0F0F0F0F) << 4);
@@ -73,15 +76,30 @@ int ReverseBits(int v, int num_bits = 16)
 [numthreads(8, 8, 1)]
 void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const uint seed = id.y * u_N + id.x;
-    float scalar = 2.0f * PI / u_L;
+    const float scalar = 2.0f * PI / u_L;
     const float threshold = u_N * 0.5f * scalar;
     const float2 wavevector = id.xy * scalar - threshold;
-    const float2 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2));
-    const float spectrum = PhillipsSpectrum(wavevector) * ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
+    const float4 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2), Hash(seed * 3), Hash(seed * 4));
+    const float short_wave_suppression = ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
+    const float spectrum_k = PhillipsSpectrum(wavevector) * short_wave_suppression;
+    const float spectrum_minus_k = PhillipsSpectrum(wavevector * -1.0f) * short_wave_suppression;
     // const float spectrum = JonswapSpectrum(wavevector);
-    float2 amplitudes = sqrt(0.5f * spectrum) * gaussians;
+    float4 amplitudes = float4(sqrt(0.5f * spectrum_k) * gaussians.xy, sqrt(0.5f * spectrum_minus_k) * gaussians.zw);
     
     spectrum_texture[id.xy] = amplitudes;
+}
+
+[numthreads(8, 8, 1)]
+void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
+    const float scalar = 2.0f * PI / u_L;
+    const float2 wavevector = (id.xy - (u_N * 0.5f)) * scalar;
+    const float magnitude = length(wavevector);
+    const float w = sqrt(magnitude * G);
+    const float4 amplitudes = spectrum_texture[id.xy];
+    const float2 euler_formula = float2(cos(w * t), sin(w * t));
+    const float2 euler_formula_conj = ComplexConj(euler_formula);
+
+    fourier_texture[id.xy] = ComplexMul(amplitudes.xy, euler_formula) + ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj);
 }
 
 [numthreads(1, 64, 1)]
