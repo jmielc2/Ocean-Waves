@@ -237,7 +237,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   compute: {fileID: 7200000, guid: 587b72cc7f37b074781c3fbfff0118a9, type: 3}
   spectrum_texture: {fileID: 0}
-  N: 1024
+  height_texture: {fileID: 0}
+  N: 256
 --- !u!20 &1237491518
 Camera:
   m_ObjectHideFlags: 0

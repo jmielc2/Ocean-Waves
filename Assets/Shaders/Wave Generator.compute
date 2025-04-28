@@ -1,4 +1,5 @@
 #pragma kernel InitializeSpectrum
+#pragma kernel GenerateButterflyTexture
 #pragma kernel GenerateHeightSpectrum
 
 #define PI 3.14159265358979323846
@@ -8,7 +9,7 @@ RWTexture2D<float2> spectrum_texture;
 RWTexture2D<float> height_texture;
 RWTexture2D<float4> butterfly_texture;
 uniform uint u_N;
-uniform uint u_log2N;
+uniform uint u_Log2N;
 uniform float u_L;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;

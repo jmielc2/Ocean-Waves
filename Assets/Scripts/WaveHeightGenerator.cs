@@ -5,15 +5,21 @@ public class WaveHeightGenerator : MonoBehaviour {
     public ComputeShader compute;
     public RenderTexture spectrum_texture;
     public RenderTexture height_texture;
+    public RenderTexture butterfly_texture;
+
     [Range(64, 1024)]
     public int N;
 
+    private int log2_N;
     private bool compute_configured = false;
     private const int init_spectrum_kernel = 0;
-    private const int generate_height_spectrum_kernel = 1;
+    private const int generate_butterfly_texture_kernel = 1;
+    private const int generate_height_spectrum_kernel = 2;
 
     void Start() {
+        log2_N = (int)Mathf.Log(N, 2.0f);
         CreateSpectrumTexture();
+        CreateButterflyTexture();
         CreateHeightTexture();
     }
 
@@ -25,13 +31,17 @@ public class WaveHeightGenerator : MonoBehaviour {
     private void Update() {
         if (!compute_configured) {
             compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
+            compute.SetTexture(generate_butterfly_texture_kernel, "butterfly_texture", butterfly_texture);
             compute.SetTexture(generate_height_spectrum_kernel, "spectrum_texture", spectrum_texture);
+            compute.SetTexture(generate_height_spectrum_kernel, "butterfly_texture", butterfly_texture);
             compute.SetTexture(generate_height_spectrum_kernel, "height_texture", height_texture);
             compute.SetInt("u_N", N);
+            compute.SetInt("u_Log2N", log2_N);
             compute.SetFloat("u_L", 256f);
             compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
             compute.SetFloat("u_wind_speed", 5f);
             compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
+            compute.Dispatch(generate_butterfly_texture_kernel, log2_N, N * N / 64, 1);
             compute.Dispatch(generate_height_spectrum_kernel, N / 8, N / 8, 1);
             compute_configured = true;
         }
@@ -52,6 +62,10 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     private void CreateSpectrumTexture() {
         spectrum_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RGFloat);
+    }
+
+    private void CreateButterflyTexture() {
+        butterfly_texture = CreateRenderTexture(log2_N, N * N, 0, RenderTextureFormat.ARGBFloat);
     }
 
     private void CreateHeightTexture() {
