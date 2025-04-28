@@ -9,7 +9,6 @@ RWTexture2D<float2> spectrum_texture;
 RWTexture2D<float> height_texture;
 RWTexture2D<float4> butterfly_texture;
 uniform uint u_N;
-uniform uint u_Log2N;
 uniform float u_L;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
@@ -47,6 +46,26 @@ float ShortWaveSuppressionFactor(float2 wavevector, float threshold, float fallo
     return 1.0f;
 }
 
+float2 ComplexAdd(float2 a, float2 b)
+{
+    return a + b;
+}
+
+float2 ComplexMul(float2 a, float2 b)
+{
+    return float2((a.x * b.x) - (a.y * b.y), (a.x * b.y) + (a.y * b.x));
+}
+
+// Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
+int ReverseBits(int v, int num_bits = 16)
+{
+    v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
+    v = ((v >> 2) & 0x33333333) | ((v & 0x33333333) << 2);
+    v = ((v >> 4) & 0x0F0F0F0F) | ((v & 0x0F0F0F0F) << 4);
+    v = ((v >> 8) & 0x00FF00FF) | ((v & 0x00FF00FF) << 8);
+    return v >> (16 - num_bits);
+}
+
 /*
 * Kernel Functions
 */
@@ -65,26 +84,9 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     spectrum_texture[id.xy] = amplitudes;
 }
 
-float2 ComplexAdd(float2 a, float2 b) {
-    return a + b;
-}
-
-float2 ComplexMul(float2 a, float2 b) {
-    return float2((a.x * b.x) - (a.y * b.y), (a.x * b.y) + (a.y * b.x));
-}
-
-// Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
-int ReverseBits(int v, int num_bits = 16) {
-    v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
-    v = ((v >> 2) & 0x33333333) | ((v & 0x33333333) << 2);
-    v = ((v >> 4) & 0x0F0F0F0F) | ((v & 0x0F0F0F0F) << 4);
-    v = ((v >> 8) & 0x00FF00FF) | ((v & 0x00FF00FF) << 8);
-    return v >> (16 - num_bits);
-}
-
 [numthreads(1, 64, 1)]
 void GenerateButterflyTexture(uint3 id : SV_DispatchThreadID) {
-    const float N = float(u_N);
+    const float N = float(u_N * u_N);
     const int butterflyspan = pow(2.0f, id.x);
     const float butterflyspan_doubled = butterflyspan * 2.0f;
     const float k = fmod(id.y * N / butterflyspan_doubled, N);
