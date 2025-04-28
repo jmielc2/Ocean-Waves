@@ -75,6 +75,10 @@ public class WaveHeightGenerator : MonoBehaviour {
         butterfly_texture = CreateRenderTexture(N_times_N_log2, N * N, 0, RenderTextureFormat.ARGBFloat);
     }
 
+    private void CreateFourierTexture() {
+        fourier_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RGFloat);
+    }
+
     private void CreateHeightTexture() {
         height_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RFloat);
     }
