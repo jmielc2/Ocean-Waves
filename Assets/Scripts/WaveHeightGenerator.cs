@@ -41,6 +41,8 @@ public class WaveHeightGenerator : MonoBehaviour {
             compute.SetTexture(generate_butterfly_texture_kernel, "butterfly_texture", butterfly_texture);
             compute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
             compute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
+            compute.SetTexture(horizontal_ifft_kernel, "butterfly_texture", butterfly_texture);
+            compute.SetTexture(vertical_ifft_kernel, "butterfly_texture", butterfly_texture);
             compute.SetInt("u_N", N);
             compute.SetFloat("u_L", 256f);
             compute.SetFloat("u_time", time);
@@ -50,8 +52,13 @@ public class WaveHeightGenerator : MonoBehaviour {
             compute.Dispatch(generate_butterfly_texture_kernel, N_times_N_log2, N * N / 64, 1);
             compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
             // Do Horizontal and Vertical IFFTs
-            int pingpong_iteration = 0;
             int pingpong_direction = 0;
+            for (int i = 0; i < N_times_N_log2; i++) {
+                compute.SetInt("pingpong_direction", pingpong_direction);
+                compute.SetInt("pingpong_iteration", i);
+                compute.SetTexture(horizontal_ifft_kernel, "pingpong0", fourier_texture);
+                compute.SetTexture(horizontal_ifft_kernel, "pingpong1", fourier_texture);
+            }
             
             compute_configured = true;
         }
