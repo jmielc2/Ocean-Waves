@@ -31,7 +31,7 @@ float Hash(uint n) {
 }
 
 // Box Muller transform
-float2 UniformToGaussianDistribution(float u1, float u2, float u3, float u4) {
+float4 UniformToGaussianDistribution(float u1, float u2, float u3, float u4) {
     float2 R = float2(sqrt(-2.0f * log(u1)), sqrt(-2.0f * log(u3)));
     float2 theta = float2(2.0f * PI * u2, 2.0f * PI * u4);
     return float4(R.x * cos(theta.x), R.x * sin(theta.x), R.y * cos(theta.y), R.y * sin(theta.y));
