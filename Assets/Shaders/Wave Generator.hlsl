@@ -6,7 +6,7 @@
 #define PI 3.14159265358979323846
 #define G 9.8
 
-RWTexture2D<float2> spectrum_texture;
+RWTexture2D<float4> spectrum_texture;
 RWTexture2D<float2> fourier_texture;
 RWTexture2D<float> height_texture;
 
@@ -25,9 +25,9 @@ float Hash(uint n) {
 
 // Box Muller transform
 float4 UniformToGaussianDistribution(float u1, float u2, float u3, float u4) {
-    float R = sqrt(-2.0f * log(u1));
-    float theta = 2.0f * PI * u2;
-    return float2(R * cos(theta), R * sin(theta));
+    float2 R = float2(sqrt(-2.0f * log(u1)), sqrt(-2.0f * log(u3)));
+    float2 theta = float2(2.0f * PI * u2, 2.0f * PI * u4);
+    return float4(R.x * cos(theta.x), R.x * sin(theta.x), R.y * cos(theta.y), R.y * sin(theta.y));
 }
 
 float PhillipsSpectrum(float2 wavevector) {
@@ -80,11 +80,12 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const float scalar = 2.0f * PI / u_L;
     const float threshold = u_N * 0.5f * scalar;
     const float2 wavevector = id.xy * scalar - threshold;
-    const float4 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2));
+    const float4 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2), Hash(seed * 3), Hash(seed * 4));
     const float short_wave_suppression = ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
     const float spectrum_k = PhillipsSpectrum(wavevector) * short_wave_suppression;
+    const float spectrum_minus_k = PhillipsSpectrum(-1.0f * wavevector) * short_wave_suppression;
     // const float spectrum = JonswapSpectrum(wavevector);
-    float4 amplitudes = float2(sqrt(0.5f * spectrum_k) * gaussians.xy);
+    float4 amplitudes = float4(sqrt(0.5f * spectrum_k) * gaussians.xy, sqrt(0.5f * spectrum_minus_k) * gaussians.zw);
     
     spectrum_texture[id.xy] = amplitudes;
 }
@@ -96,8 +97,7 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     const float magnitude = length(wavevector);
     const float w = sqrt(magnitude * G);
     const float4 amplitudes = spectrum_texture[id.xy];
-    float2 euler_formula = float2(0.0f, 0.0f);
-    sincos(w * u_time, euler_formula.y, euler_formula.x);
+    float2 euler_formula = float2(cos(w * u_time), sin(w * u_time));
     const float2 euler_formula_conj = ComplexConj(euler_formula);
 
     fourier_texture[id.xy] = ComplexMul(amplitudes.xy, euler_formula) + ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj);
@@ -110,7 +110,7 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
 #define LOG2_SIZE 10
 groupshared float2 butterfly_buffer[2][SIZE];
 
-// Referenced from  Fynn-Jorin Flügge's Thesis "Realtime GPGPU FFT Ocean Water Simulation"
+// Referenced from  Fynn-Jorin Flï¿½gge's Thesis "Realtime GPGPU FFT Ocean Water Simulation"
 float4 CalcButterflyOperands(int step, int index) {
     float4 butterfly_operands = float4(0.0f, 0.0f, 0.0f, 0.0f);
     const float butterfly_span = pow(2.0f, step);
