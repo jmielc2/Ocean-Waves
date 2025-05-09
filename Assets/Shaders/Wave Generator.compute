@@ -147,20 +147,18 @@ void CalcButterflyOperands(int step, int index, out uint2 indices, out float2 tw
 void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
     bool butterfly_direction = false;
     butterfly_buffer[butterfly_direction][id.x] = fourier_texture[id.xy];
-    GroupMemoryBarrierWithGroupSync();
+    AllMemoryBarrierWithGroupSync();
     
-    for (int i = 0; i < 8; i++) {
-        uint2 indices;
-        float2 twiddle;
-        [unroll]
-        for (int step = 0; step < LOG2_SIZE; step++) {    
-            CalcButterflyOperands(step, id.x, indices, twiddle);
-            const float2 a = butterfly_buffer[butterfly_direction][indices.x];
-            const float2 b = butterfly_buffer[butterfly_direction][indices.y];
-            butterfly_buffer[!butterfly_direction][id.x] = ComplexAdd(a, ComplexMul(twiddle, b));
-            butterfly_direction = !butterfly_direction;
-            GroupMemoryBarrierWithGroupSync();
-        }
+    uint2 indices;
+    float2 twiddle;
+    [unroll]
+    for (int step = 0; step < LOG2_SIZE; step++) {    
+        CalcButterflyOperands(step, id.x, indices, twiddle);
+        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
+        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
+        butterfly_buffer[!butterfly_direction][id.x] = ComplexAdd(a, ComplexMul(twiddle, b));
+        butterfly_direction = !butterfly_direction;
+        GroupMemoryBarrierWithGroupSync();
     }
     fourier_texture[id.xy] = butterfly_buffer[butterfly_direction][id.x];
 }
@@ -169,25 +167,26 @@ void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
 void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
     bool butterfly_direction = false;
     butterfly_buffer[butterfly_direction][id.y] = fourier_texture[id.xy];
-    GroupMemoryBarrierWithGroupSync();
+    AllMemoryBarrierWithGroupSync();
 
-    for (int i = 0; i < 8; i++) {
-        uint2 indices;
-        float2 twiddle;
-        [unroll]
-        for (int step = 0; step < LOG2_SIZE; step++) {
-            CalcButterflyOperands(step, id.y, indices, twiddle);
-            const float2 a = butterfly_buffer[butterfly_direction][indices.x];
-            const float2 b = butterfly_buffer[butterfly_direction][indices.y];
-            butterfly_buffer[!butterfly_direction][id.y] = ComplexAdd(a, ComplexMul(twiddle, b));
-            butterfly_direction = !butterfly_direction;
-            GroupMemoryBarrierWithGroupSync();
-        }
+    uint2 indices;
+    float2 twiddle;
+    [unroll]
+    for (int step = 0; step < LOG2_SIZE; step++) {
+        CalcButterflyOperands(step, id.y, indices, twiddle);
+        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
+        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
+        butterfly_buffer[!butterfly_direction][id.y] = ComplexAdd(a, ComplexMul(twiddle, b));
+        butterfly_direction = !butterfly_direction;
+        GroupMemoryBarrierWithGroupSync();
     }
-    fourier_texture[id.xy] = butterfly_buffer[butterfly_direction][id.y]; // Remove this write when done, just here to validate IFFT
+    fourier_texture[id.xy] = butterfly_buffer[butterfly_direction][id.y];
 
     float perms[2] = { 1.0f, -1.0f };
     int index = (id.x + id.y) & 0x1;
-    height_texture[id.xy] = perms[index] * butterfly_buffer[butterfly_direction][id.y].x / float(u_N * u_N);
+    float height = butterfly_buffer[butterfly_direction][id.y].x * perms[index];
+
+    height_texture[id.xy] = (height + 1.0f) * 0.5f;
+    AllMemoryBarrierWithGroupSync();
 }
 
