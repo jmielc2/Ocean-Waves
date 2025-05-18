@@ -1,4 +1,5 @@
 #pragma kernel InitializeSpectrum
+#pragma kernel PackMinusKConjugate
 #pragma kernel CycleThroughTime
 #pragma kernel HorizontalIFFT
 #pragma kernel VerticalIFFT
@@ -29,10 +30,10 @@ float Hash(uint n) {
 }
 
 // Box Muller transform
-float4 UniformToGaussianDistribution(float u1, float u2, float u3, float u4) {
-    float2 R = float2(sqrt(-2.0f * log(u1)), sqrt(-2.0f * log(u3)));
-    float2 theta = float2(2.0f * PI * u2, 2.0f * PI * u4);
-    return float4(R.x * cos(theta.x), R.x * sin(theta.x), R.y * cos(theta.y), R.y * sin(theta.y));
+float2 UniformToGaussianDistribution(float u1, float u2) {
+    float R = sqrt(-2.0f * log(u1));
+    float theta = 2.0f * PI * u2;
+    return float2(R.x * cos(theta.x), R.x * sin(theta.x));
 }
 
 float PhillipsSpectrum(float2 wavevector) {
@@ -136,14 +137,21 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const float scalar = 2.0f * PI / u_L;
     const float threshold = u_N * 0.5f * scalar;
     const float2 wavevector = id.xy * scalar - threshold;
-    const float4 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2), Hash(seed * 3), Hash(seed * 4));
+    const float2 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2));
     const float short_wave_suppression = ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
     const float spectrum_k = PhillipsSpectrum(wavevector) * short_wave_suppression;
-    const float spectrum_minus_k = PhillipsSpectrum(-1.0f * wavevector) * short_wave_suppression;
     // const float spectrum = JonswapSpectrum(wavevector);
-    float4 amplitudes = float4(sqrt(0.5f * spectrum_k) * gaussians.xy, sqrt(0.5f * spectrum_minus_k) * gaussians.zw);
+    float4 amplitudes = float4(sqrt(0.5f * spectrum_k) * gaussians, 0.0f, 0.0f);
     
     spectrum_texture[id.xy] = amplitudes;
+}
+
+[numthreads(8, 8, 1)]
+void PackMinusKConjugate(uint3 id : SV_DispatchThreadID) {
+    const float2 spectrum_k = spectrum_texture[id.xy].xy;
+    const uint2 pos = uint2(u_N - id.x, u_N - id.y);
+    const float2 spectrum_minus_k = spectrum_texture[pos].xy;
+    spectrum_texture[id.xy] = float4(spectrum_k, spectrum_minus_k.x, -1.0f * spectrum_minus_k.y);
 }
 
 [numthreads(8, 8, 1)]
