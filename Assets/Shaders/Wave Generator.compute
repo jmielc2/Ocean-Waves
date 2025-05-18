@@ -168,7 +168,7 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
 
-    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
+    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(amplitudes.zw, euler_formula_conj));
 }
 
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
