@@ -32,7 +32,7 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     private void Update() {
         if (!compute_configured) {
-            float time = Time.time;
+            float time = Time.time + 10.0f;
             compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
             compute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
             compute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
@@ -43,11 +43,11 @@ public class WaveHeightGenerator : MonoBehaviour {
             compute.SetFloat("u_L", 256f);
             compute.SetFloat("u_time", time);
             compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
-            compute.SetFloat("u_wind_speed", 5f);
+            compute.SetFloat("u_wind_speed", 15f);
             compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
             compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
             compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
-            compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
+            // compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
             compute_configured = true;
         }
     }

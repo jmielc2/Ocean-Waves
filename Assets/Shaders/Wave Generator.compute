@@ -3,8 +3,8 @@
 #pragma kernel HorizontalIFFT
 #pragma kernel VerticalIFFT
 
-#define PI 3.14159265358979323846
-#define G 9.8
+#define PI 3.14159265358979323846f
+#define G 9.81f
 
 RWTexture2D<float4> spectrum_texture;
 RWTexture2D<float2> fourier_texture;
@@ -15,6 +15,11 @@ uniform float u_L;
 uniform float u_time;
 uniform float2 u_wind_direction;
 uniform float u_wind_speed;
+
+// IFFT Defines
+#define SIZE 1024
+#define LOG2_SIZE 10
+groupshared float2 butterfly_buffer[2][SIZE];
 
 // Huga Elias integer hash
 float Hash(uint n) {
@@ -62,12 +67,63 @@ float2 ComplexConj(float2 a) {
 }
 
 // Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
-int ReverseBits(int v, int num_bits = 16) {
+int ReverseBits(int v) {
     v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
     v = ((v >> 2) & 0x33333333) | ((v & 0x33333333) << 2);
     v = ((v >> 4) & 0x0F0F0F0F) | ((v & 0x0F0F0F0F) << 4);
     v = ((v >> 8) & 0x00FF00FF) | ((v & 0x00FF00FF) << 8);
-    return v >> (16 - num_bits);
+    return v >> (16 - LOG2_SIZE);
+}
+
+
+// Referenced from  Fynn-Jorin Flogge's Thesis "Realtime GPGPU FFT Ocean Water Simulation"
+void CalcButterflyOperands(int step, int index, out uint2 indices, out float2 twiddle) {
+    const float butterfly_span = pow(2.0f, step);
+    const float butterfly_span_doubled = butterfly_span * 2.0f;
+    const float k = fmod(index * SIZE / butterfly_span_doubled, SIZE);
+    const float euler_exponent = 2.0f * PI * k / float(SIZE);
+    sincos(euler_exponent, twiddle.y, twiddle.x);
+    bool isTopWing = false;
+    if (fmod(index, butterfly_span_doubled) < butterfly_span) {
+        isTopWing = true;
+    }
+
+    if (step == 0) {
+        if (isTopWing) {
+            indices.x = ReverseBits(index);
+            indices.y = ReverseBits(index + 1);
+        } else {
+            indices.x = ReverseBits(index - 1);
+            indices.y = ReverseBits(index);
+        }
+    } else {
+        if (isTopWing) {
+            indices.x = index;
+            indices.y = index + butterfly_span;
+        } else {
+            indices.x = index - butterfly_span;
+            indices.y = index;
+        }
+    }
+}
+
+float2 IFFT(int index, float2 value) {
+    bool butterfly_direction = false;
+    butterfly_buffer[butterfly_direction][index] = value;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 indices;
+    float2 twiddle;
+    [unroll]
+    for (int step = 0; step < LOG2_SIZE; step++) {
+        CalcButterflyOperands(step, index, indices, twiddle);
+        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
+        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
+        butterfly_buffer[!butterfly_direction][index] = ComplexAdd(a, ComplexMul(twiddle, b));
+        butterfly_direction = !butterfly_direction;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    return butterfly_buffer[butterfly_direction][index];
 }
 
 /*
@@ -94,99 +150,34 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
 void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     const float scalar = 2.0f * PI / u_L;
     const float2 wavevector = (id.xy - (u_N * 0.5f)) * scalar;
-    const float magnitude = length(wavevector);
+    float magnitude = length(wavevector);
+    if (magnitude < 0.00001f) {
+        magnitude = 0.00001f;
+    }
     const float w = sqrt(magnitude * G);
     const float4 amplitudes = spectrum_texture[id.xy];
     float2 euler_formula = float2(0.0f, 0.0f);
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
 
-    fourier_texture[id.xy] = ComplexMul(amplitudes.xy, euler_formula) + ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj);
-}
-
-
-// IFFT Relevant Defines
-
-#define SIZE 1024
-#define LOG2_SIZE 10
-groupshared float2 butterfly_buffer[2][SIZE];
-
-// Referenced from  Fynn-Jorin Fl�gge's Thesis "Realtime GPGPU FFT Ocean Water Simulation"
-void CalcButterflyOperands(int step, int index, out uint2 indices, out float2 twiddle) {
-    const float butterfly_span = pow(2.0f, step);
-    const float butterfly_span_doubled = butterfly_span * 2.0f;
-    const float k = fmod(index * SIZE / butterfly_span_doubled, SIZE);
-    const float euler_exponent = 2.0f * PI * k / float(SIZE);
-    sincos(euler_exponent, twiddle.y, twiddle.x);
-    bool isTopWing = false;
-    if (fmod(index, butterfly_span_doubled) < butterfly_span) {
-        isTopWing = true;
-    }
-
-    if (step == 0) {
-        if (isTopWing) {
-            indices.x = ReverseBits(index, LOG2_SIZE);
-            indices.y = ReverseBits(index + 1, LOG2_SIZE);
-        } else {
-            indices.x = ReverseBits(index - 1, LOG2_SIZE);
-            indices.y = ReverseBits(index, LOG2_SIZE);
-        }
-    } else {
-        if (isTopWing) {
-            indices.x = index;
-            indices.y = index + butterfly_span;
-        } else {
-            indices.x = index - butterfly_span;
-            indices.y = index;
-        }
-    }
+    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
 }
 
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
 [numthreads(SIZE, 1, 1)]
 void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
-    bool butterfly_direction = false;
-    butterfly_buffer[butterfly_direction][id.x] = fourier_texture[id.xy];
-    AllMemoryBarrierWithGroupSync();
-    
-    uint2 indices;
-    float2 twiddle;
-    [unroll]
-    for (int step = 0; step < LOG2_SIZE; step++) {    
-        CalcButterflyOperands(step, id.x, indices, twiddle);
-        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
-        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
-        butterfly_buffer[!butterfly_direction][id.x] = ComplexAdd(a, ComplexMul(twiddle, b));
-        butterfly_direction = !butterfly_direction;
-        GroupMemoryBarrierWithGroupSync();
-    }
-    fourier_texture[id.xy] = butterfly_buffer[butterfly_direction][id.x];
+    fourier_texture[id.xy] = IFFT(id.x, fourier_texture[id.xy]);
 }
 
 [numthreads(1, SIZE, 1)]
 void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
-    bool butterfly_direction = false;
-    butterfly_buffer[butterfly_direction][id.y] = fourier_texture[id.xy];
-    AllMemoryBarrierWithGroupSync();
+    const float2 result = IFFT(id.y, fourier_texture[id.xy]);
+    fourier_texture[id.xy] = result;
 
-    uint2 indices;
-    float2 twiddle;
-    [unroll]
-    for (int step = 0; step < LOG2_SIZE; step++) {
-        CalcButterflyOperands(step, id.y, indices, twiddle);
-        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
-        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
-        butterfly_buffer[!butterfly_direction][id.y] = ComplexAdd(a, ComplexMul(twiddle, b));
-        butterfly_direction = !butterfly_direction;
-        GroupMemoryBarrierWithGroupSync();
-    }
-    fourier_texture[id.xy] = butterfly_buffer[butterfly_direction][id.y];
-
-    float perms[2] = { 1.0f, -1.0f };
-    int index = (id.x + id.y) & 0x1;
-    float height = butterfly_buffer[butterfly_direction][id.y].x * perms[index];
-
-    height_texture[id.xy] = (height + 1.0f) * 0.5f;
-    AllMemoryBarrierWithGroupSync();
+    // Calc Height
+    const float perms[2] = { 1.0f, -1.0f };
+    const int index = (id.x + id.y) & 0x1;
+    const float height = result.x * perms[index] * (1.0f / float(u_N * u_N));
+    height_texture[id.xy] = height;
 }
 
