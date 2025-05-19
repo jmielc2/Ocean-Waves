@@ -13,7 +13,6 @@ public class WaveHeightGenerator : MonoBehaviour {
     public Resolution resolution = Resolution.TEN_TWENTY_FOUR;
 
     private int N;
-    private int N_times_N_log2;
     private bool compute_configured = false;
     private const int init_spectrum_kernel = 0;
     private const int pack_minus_k_conj_kernel = 1;
@@ -23,7 +22,6 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     void Start() {
         N = (int)resolution;
-        N_times_N_log2 = (int)Mathf.Log(N * N, 2.0f);
         CreateSpectrumTexture();
         CreateFourierTexture();
         CreateHeightTexture();
@@ -36,27 +34,27 @@ public class WaveHeightGenerator : MonoBehaviour {
     }
 
     private void Update() {
+        float time = Time.time + 10.0f;
+        compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
+        compute.SetTexture(pack_minus_k_conj_kernel, "spectrum_texture", spectrum_texture);
+        compute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
+        compute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
+        compute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
+        compute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
+        compute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
+        compute.SetInt("u_N", N);
+        compute.SetFloat("u_L", 256f);
+        compute.SetFloat("u_time", time);
+        compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
+        compute.SetFloat("u_wind_speed", 15f);
         if (!compute_configured) {
-            float time = Time.time + 10.0f;
-            compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(pack_minus_k_conj_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
-            compute.SetInt("u_N", N);
-            compute.SetFloat("u_L", 256f);
-            compute.SetFloat("u_time", time);
-            compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
-            compute.SetFloat("u_wind_speed", 15f);
             compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
             compute.Dispatch(pack_minus_k_conj_kernel, N / 8, N / 8, 1);
-            compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
-            compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
-            compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
             compute_configured = true;
         }
+        compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
+        compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
+        compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
     }
 
     private RenderTexture CreateRenderTexture(int width, int height, int depth, RenderTextureFormat format) {
