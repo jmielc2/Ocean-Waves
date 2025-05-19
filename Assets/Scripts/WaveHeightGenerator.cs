@@ -54,7 +54,7 @@ public class WaveHeightGenerator : MonoBehaviour {
         }
         compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
         compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
-        compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
+        compute.Dispatch(vertical_ifft_kernel, 1, N, 1);
     }
 
     private RenderTexture CreateRenderTexture(int width, int height, int depth, RenderTextureFormat format) {
