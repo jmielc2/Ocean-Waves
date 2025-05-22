@@ -239,7 +239,7 @@ MonoBehaviour:
   spectrum_texture: {fileID: 0}
   height_texture: {fileID: 0}
   fourier_texture: {fileID: 0}
-  resolution: 1024
+  resolution: 256
 --- !u!20 &1237491518
 Camera:
   m_ObjectHideFlags: 0

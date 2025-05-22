@@ -3,6 +3,7 @@
 #pragma kernel CycleThroughTime
 #pragma kernel HorizontalIFFT
 #pragma kernel VerticalIFFT
+#pragma kernel IDFT
 
 #define PI 3.14159265358979323846f
 #define G 9.81f
@@ -83,8 +84,7 @@ void ButterflyValues(uint step, uint index, out uint2 indices, out float2 twiddl
     uint b = SIZE >> (step + 1);
     uint w = b * (index / b);
     uint i = (w + index) % SIZE;
-    sincos(-twoPi / SIZE * w, twiddle.y, twiddle.x);
-
+    sincos(twoPi * w / SIZE, twiddle.y, twiddle.x);
     twiddle.y = -twiddle.y;
     indices = uint2(i, i + b);
 }
@@ -97,7 +97,7 @@ float2 IFFT(uint index, float2 value, bool isHorizontal) {
 
     uint2 indices;
     float2 twiddle;
-    const int adder = (isHorizontal) ? LOG2_SIZE : LOG2_SIZE - 1;
+    const int adder = (isHorizontal) ? LOG2_SIZE : LOG2_SIZE;
     [unroll]
     for (int step = 0; step < adder; ++step) {
         ButterflyValues(step, index, indices, twiddle);
@@ -123,7 +123,6 @@ void InitializeSpectrum(uint3 id : SV_DispatchThreadID) {
     const float2 gaussians = UniformToGaussianDistribution(Hash(seed), Hash(seed * 2));
     const float short_wave_suppression = ShortWaveSuppressionFactor(wavevector, threshold, (sqrt(2.0f) - 1.0f) * threshold);
     const float spectrum_k = PhillipsSpectrum(wavevector) * short_wave_suppression;
-    // const float spectrum = JonswapSpectrum(wavevector);
     float4 amplitudes = float4(sqrt(0.5f * spectrum_k) * gaussians, 0.0f, 0.0f);
     
     spectrum_texture[id.xy] = amplitudes;
@@ -134,7 +133,7 @@ void PackMinusKConjugate(uint3 id : SV_DispatchThreadID) {
     const float2 spectrum_k = spectrum_texture[id.xy].xy;
     const uint2 pos = uint2(u_N - id.x, u_N - id.y);
     const float2 spectrum_minus_k = spectrum_texture[pos].xy;
-    spectrum_texture[id.xy] = float4(spectrum_k, spectrum_minus_k.x, -1.0f * spectrum_minus_k.y);
+    spectrum_texture[id.xy] = float4(spectrum_k, spectrum_minus_k);
 }
 
 [numthreads(8, 8, 1)]
@@ -147,29 +146,53 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     }
     const float w = sqrt(magnitude * G);
     const float4 amplitudes = spectrum_texture[id.xy];
-    float2 euler_formula = float2(0.0f, 0.0f);
+    float2 euler_formula;
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
 
-    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(amplitudes.zw, euler_formula_conj));
+    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
 }
 
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
 [numthreads(SIZE, 1, 1)]
 void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
     float2 result = IFFT(id.x, fourier_texture[id.xy], true);
+    // if (id.x % 8 == 0 || id.y % 8 == 0) {
+    //     result = float2(0, 0);
+    // }
     fourier_texture[id.xy] = result;
 }
 
-[numthreads(SIZE, 1, 1)]
+[numthreads(1, SIZE, 1)]
 void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
-    const float2 result = IFFT(id.x, fourier_texture[id.yx], false);
-    fourier_texture[id.yx] = result;
+    float2 result = IFFT(id.y, fourier_texture[id.xy], false);
+    // if (id.x % 8 == 0 || id.y % 8 == 0) {
+    //     result = float2(0, 0);
+    // }
+    fourier_texture[id.xy] = result;
 
     // Calc Height
     const float perms[2] = { 1.0f, -1.0f };
     const int index = (id.x + id.y) & 0x1;
     const float height = length(result) * perms[index] * (1.0f / float(u_N * u_N));
     height_texture[id.xy] = height;
+}
+
+[numthreads(8, 8, 1)]
+void IDFT(uint3 id : SV_DispatchThreadID) {
+    float2 sum = float2(0, 0);
+    const uint N = u_N * u_N;
+    const float index = float(id.x + (u_N * id.y));
+    const float euler_exp = -2.0f * PI * index / N;
+    float2 w;
+    for (uint y = 0; y < u_N; y++) {
+        for (uint x = 0; x < u_N; x++) {
+            const float k = float(x + (y * u_N)) * euler_exp;
+            sincos(k, w.y, w.x);
+            float2 value = fourier_texture[uint2(x, y)];
+            sum = ComplexAdd(sum, ComplexMul(w, value.xy));
+        }
+    }
+    height_texture[id.xy] = sum.x;
 }
 
