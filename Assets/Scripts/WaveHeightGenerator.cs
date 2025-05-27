@@ -19,7 +19,6 @@ public class WaveHeightGenerator : MonoBehaviour {
     private const int cycle_through_time_kernel = 2;
     private const int horizontal_ifft_kernel = 3;
     private const int vertical_ifft_kernel = 4;
-    private const int idft_kernel = 5;
 
     void Start() {
         N = (int)resolution;
@@ -43,8 +42,6 @@ public class WaveHeightGenerator : MonoBehaviour {
         compute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
         compute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
         compute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
-        compute.SetTexture(idft_kernel, "fourier_texture", fourier_texture);
-        compute.SetTexture(idft_kernel, "height_texture", height_texture);
         compute.SetInt("u_N", N);
         compute.SetFloat("u_L", 256f);
         compute.SetFloat("u_time", time);
@@ -56,9 +53,8 @@ public class WaveHeightGenerator : MonoBehaviour {
             compute_configured = true;
         }
         compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
-        // compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
-        // compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
-        compute.Dispatch(idft_kernel, N / 8, N / 8, 1);
+        compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
+        compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
     }
 
     private RenderTexture CreateRenderTexture(int width, int height, int depth, RenderTextureFormat format) {

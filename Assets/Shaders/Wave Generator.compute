@@ -1,9 +1,8 @@
-#pragma kernel InitializeSpectrum
+﻿#pragma kernel InitializeSpectrum
 #pragma kernel PackMinusKConjugate
 #pragma kernel CycleThroughTime
 #pragma kernel HorizontalIFFT
 #pragma kernel VerticalIFFT
-#pragma kernel IDFT
 
 #define PI 3.14159265358979323846f
 #define G 9.81f
@@ -37,14 +36,25 @@ float2 UniformToGaussianDistribution(float u1, float u2) {
     return float2(R.x * cos(theta.x), R.x * sin(theta.x));
 }
 
+bool isNan(float value) {
+    return value != value;
+}
+
 float PhillipsSpectrum(float2 wavevector) {
     const float L = u_wind_speed * u_wind_speed / G;
     const float k = length(wavevector);
+    if (k < 0.00001f) {
+        return 0.0f;
+    }
     const float inv_k = 1.0f / k;
     const float2 direction = wavevector / k;
     const float inv_k_times_L = 1.0f * inv_k / L;
     const float wind_dot_wavedirection = dot(u_wind_direction, direction);
-    return 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
+    const float result = 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
+    if (isNan(result) || result > 1000000.0f) {
+        return 0.0f;
+    }
+    return result;
 }
 
 float ShortWaveSuppressionFactor(float2 wavevector, float threshold, float falloff = 1.0f) {
@@ -68,7 +78,6 @@ float2 ComplexConj(float2 a) {
     return float2(a.x, -1.0f * a.y);
 }
 
-/*
 // Referenced from https://graphics.stanford.edu/~seander/bithacks.html#ReverseParallel
 int ReverseBits(int v) {
     v = ((v >> 1) & 0x55555555) | ((v & 0x55555555) << 1);
@@ -77,29 +86,46 @@ int ReverseBits(int v) {
     v = ((v >> 8) & 0x00FF00FF) | ((v & 0x00FF00FF) << 8);
     return v >> (16 - LOG2_SIZE);
 }
-*/
 
-void ButterflyValues(uint step, uint index, out uint2 indices, out float2 twiddle) {
-    const float twoPi = 6.28318530718f;
-    uint b = SIZE >> (step + 1);
-    uint w = b * (index / b);
-    uint i = (w + index) % SIZE;
-    sincos(twoPi * w / SIZE, twiddle.y, twiddle.x);
-    twiddle.y = -twiddle.y;
-    indices = uint2(i, i + b);
+// Referenced from  Fynn-Jorin Fl�gge's "Realtime GPGPU FFT Ocean Water Simulation"
+void ButterflyValues(int step, int index, out uint2 indices, out float2 twiddle) {
+    const float butterfly_span = 0x1 << step;
+    const float butterfly_span_doubled = 0x1 << (step + 1);
+    const float k = fmod(index * SIZE / butterfly_span_doubled, SIZE);
+    const float euler_exponent = 2.0f * PI * k / float(SIZE);
+    sincos(euler_exponent, twiddle.y, twiddle.x);
+    bool isTopWing = false;
+    if (fmod(index, butterfly_span_doubled) < butterfly_span) {
+        isTopWing = true;
+    }
+    if (step == 0) {
+        if (isTopWing) {
+            indices.x = ReverseBits(index);
+            indices.y = ReverseBits(index + 1);
+        } else {
+            indices.x = ReverseBits(index - 1);
+            indices.y = ReverseBits(index);
+        }
+    } else {
+        if (isTopWing) {
+            indices.x = index;
+            indices.y = index + butterfly_span;
+        } else {
+            indices.x = index - butterfly_span;
+            indices.y = index;
+        }
+    }
 }
 
-
-float2 IFFT(uint index, float2 value, bool isHorizontal) {
+float2 IFFT(uint index, float2 value) {
     bool butterfly_direction = false;
     butterfly_buffer[butterfly_direction][index] = value;
     GroupMemoryBarrierWithGroupSync();
 
     uint2 indices;
     float2 twiddle;
-    const int adder = (isHorizontal) ? LOG2_SIZE : LOG2_SIZE;
     [unroll]
-    for (int step = 0; step < adder; ++step) {
+    for (int step = 0; step < LOG2_SIZE; ++step) {
         ButterflyValues(step, index, indices, twiddle);
         const float2 a = butterfly_buffer[butterfly_direction][indices.x];
         const float2 b = butterfly_buffer[butterfly_direction][indices.y];
@@ -156,43 +182,17 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
 [numthreads(SIZE, 1, 1)]
 void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
-    float2 result = IFFT(id.x, fourier_texture[id.xy], true);
-    // if (id.x % 8 == 0 || id.y % 8 == 0) {
-    //     result = float2(0, 0);
-    // }
+    float2 result = IFFT(id.x, fourier_texture[id.xy]) / float(SIZE);
     fourier_texture[id.xy] = result;
 }
 
 [numthreads(1, SIZE, 1)]
 void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
-    float2 result = IFFT(id.y, fourier_texture[id.xy], false);
-    // if (id.x % 8 == 0 || id.y % 8 == 0) {
-    //     result = float2(0, 0);
-    // }
-    fourier_texture[id.xy] = result;
+    const float2 result = IFFT(id.y, fourier_texture[id.xy]) / float(SIZE);
 
     // Calc Height
     const float perms[2] = { 1.0f, -1.0f };
     const int index = (id.x + id.y) & 0x1;
-    const float height = length(result) * perms[index] * (1.0f / float(u_N * u_N));
+    const float height = result.x * perms[index];
     height_texture[id.xy] = height;
 }
-
-[numthreads(8, 8, 1)]
-void IDFT(uint3 id : SV_DispatchThreadID) {
-    float2 sum = float2(0, 0);
-    const uint N = u_N * u_N;
-    const float index = float(id.x + (u_N * id.y));
-    const float euler_exp = -2.0f * PI * index / N;
-    float2 w;
-    for (uint y = 0; y < u_N; y++) {
-        for (uint x = 0; x < u_N; x++) {
-            const float k = float(x + (y * u_N)) * euler_exp;
-            sincos(k, w.y, w.x);
-            float2 value = fourier_texture[uint2(x, y)];
-            sum = ComplexAdd(sum, ComplexMul(w, value.xy));
-        }
-    }
-    height_texture[id.xy] = sum.x;
-}
-
