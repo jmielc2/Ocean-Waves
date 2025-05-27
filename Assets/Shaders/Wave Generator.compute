@@ -51,7 +51,10 @@ float PhillipsSpectrum(float2 wavevector) {
     const float inv_k_times_L = 1.0f * inv_k / L;
     const float wind_dot_wavedirection = dot(u_wind_direction, direction);
     const float result = 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
-    if (isNan(result) || result > 1000000.0f) {
+    // This check is what gave me the most trouble. Not having it results in NaN values in the spectrum texture
+    // The spectrum texture will look fine, but the IFFT will produce a black texture because of the NaN
+    // Spent so much time checking and double checking my math in the IFFTs but it was up here all along! :')
+    if (isNan(result) || result > 1000000.0f) { 
         return 0.0f;
     }
     return result;
@@ -88,6 +91,7 @@ int ReverseBits(int v) {
 }
 
 // Referenced from  Fynn-Jorin Fl�gge's "Realtime GPGPU FFT Ocean Water Simulation"
+// Not the most optimal implementation, but it works for my purposes
 void ButterflyValues(int step, int index, out uint2 indices, out float2 twiddle) {
     const float butterfly_span = 0x1 << step;
     const float butterfly_span_doubled = 0x1 << (step + 1);
@@ -175,7 +179,6 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     float2 euler_formula;
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
-
     fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
 }
 
