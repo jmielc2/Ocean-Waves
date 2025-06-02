@@ -1,6 +1,5 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Camera))]
 public class WaveHeightGenerator : MonoBehaviour {
 
     public ComputeShader compute;
@@ -11,7 +10,7 @@ public class WaveHeightGenerator : MonoBehaviour {
     public GameObject ocean_mesh_object;
 
     private bool compute_configured = false;
-    private const int N = 1024;
+    private const int N = 512;
     private const int init_spectrum_kernel = 0;
     private const int pack_minus_k_conj_kernel = 1;
     private const int cycle_through_time_kernel = 2;
@@ -88,7 +87,7 @@ public class WaveHeightGenerator : MonoBehaviour {
         };
         Vector3[] vertices = new Vector3[N * N];
         int[] triangles = new int[(N - 1) * (N - 1) * 6];
-        const float dim = 256f;
+        const float dim = 128f;
         for (int i = 0; i < N; i++) {
             float y = (i - N * 0.5f) * dim / N;
             for (int j = 0; j < N; j++) {
@@ -108,6 +107,12 @@ public class WaveHeightGenerator : MonoBehaviour {
                 triangles[triangleIndex] = topLeft;
                 triangles[triangleIndex + 1] = topRight;
                 triangles[triangleIndex + 2] = bottomLeft;
+
+                // Vector3 tl = vertices[topLeft];
+                // Vector3 tr = vertices[topRight];
+                // Vector3 bl = vertices[bottomLeft];
+                // Vector3 br = vertices[bottomRight];
+                // Debug.Log($"{tl}, {tr}, {bl}, {br}");
 
                 triangles[triangleIndex + 3] = topRight;
                 triangles[triangleIndex + 4] = bottomRight;
