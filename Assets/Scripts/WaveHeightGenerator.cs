@@ -87,10 +87,10 @@ public class WaveHeightGenerator : MonoBehaviour {
             subMeshCount = 1
         };
         Vector3[] vertices = new Vector3[N * N];
-        int[] triangles = new int[(N - 1) * 2 * (N - 1) * 3];
+        int[] triangles = new int[(N - 1) * (N - 1) * 6];
         const float dim = 256f;
         for (int i = 0; i < N; i++) {
-            float y = (i - N *0.5f) * dim / N;
+            float y = (i - N * 0.5f) * dim / N;
             for (int j = 0; j < N; j++) {
                 float x = (j - N * 0.5f) * dim / N;
                 vertices[i * N + j] = new Vector3(x, 0, y);
@@ -98,38 +98,27 @@ public class WaveHeightGenerator : MonoBehaviour {
         }
         
         int triangleIndex = 0;
-        for (int i = 0; i < N - 1; i++) { // i is mesh point index in first row
-            // First row of quads
-            triangles[triangleIndex] = i;
-            triangles[triangleIndex + 1] = i + 1;
-            triangles[triangleIndex + 2] = i + N;
-            triangleIndex += 3;
-        }
-
-        for (int i = 1; i < N - 1; i++) { // i is mesh row index
+        for (int i = 0; i < N - 1; i++) { // i is mesh row index
             for (int j = 0; j < N - 1; j++) { // j is mesh point index in current row
-                triangles[triangleIndex] = i * N + j;
-                triangles[triangleIndex + 1] = (i - 1) * N + j + 1;
-                triangles[triangleIndex + 2] = i * N + j + 1;
+                int topLeft = i * N + j;
+                int topRight = i * N + j + 1;
+                int bottomLeft = (i + 1) * N + j;
+                int bottomRight = (i + 1) * N + j + 1;
 
-                triangles[triangleIndex + 3] = i * N + j;
-                triangles[triangleIndex + 4] = i * N + j + 1;
-                triangles[triangleIndex + 5] = (i + 1) * N + j;
+                triangles[triangleIndex] = topLeft;
+                triangles[triangleIndex + 1] = topRight;
+                triangles[triangleIndex + 2] = bottomLeft;
+
+                triangles[triangleIndex + 3] = topRight;
+                triangles[triangleIndex + 4] = bottomRight;
+                triangles[triangleIndex + 5] = bottomLeft;
+
                 triangleIndex += 6;
             }
         }
 
-            // Last row of quads
-        const int baseIndex = N * (N - 1);
-        for (int i = 0; i < N - 1; i++) { // i is mesh point index in last row
-            triangles[triangleIndex] = baseIndex + i;
-            triangles[triangleIndex + 1] = baseIndex - N + i + 1;
-            triangles[triangleIndex + 2] = baseIndex + i + 1;
-            triangleIndex += 3;
-        }
-
-        mesh.vertices = vertices;
-        mesh.triangles = triangles;
+        mesh.SetVertices(vertices);
+        mesh.SetTriangles(triangles, 0);
         return mesh;
     }
 }
