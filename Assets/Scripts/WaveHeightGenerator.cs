@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class WaveHeightGenerator : MonoBehaviour {
 
@@ -10,7 +11,7 @@ public class WaveHeightGenerator : MonoBehaviour {
     public GameObject ocean_mesh_object;
 
     private bool compute_configured = false;
-    private const int N = 512;
+    private const int N = 1024;
     private const int init_spectrum_kernel = 0;
     private const int pack_minus_k_conj_kernel = 1;
     private const int cycle_through_time_kernel = 2;
@@ -83,7 +84,8 @@ public class WaveHeightGenerator : MonoBehaviour {
     private Mesh CreateOceanMesh() {
         var mesh = new Mesh() { 
             name = "Ocean Mesh",
-            subMeshCount = 1
+            subMeshCount = 1,
+            indexFormat = IndexFormat.UInt32
         };
         Vector3[] vertices = new Vector3[N * N];
         int[] triangles = new int[(N - 1) * (N - 1) * 6];
