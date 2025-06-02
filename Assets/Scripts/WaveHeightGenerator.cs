@@ -2,16 +2,17 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 public class WaveHeightGenerator : MonoBehaviour {
+    public ComputeShader oceanCompute;
+    public Shader oceanShader;
 
-    public ComputeShader compute;
-    public RenderTexture spectrum_texture;
-    public RenderTexture height_texture;
-    public RenderTexture fourier_texture;
-    public Mesh ocean_mesh;
-    public GameObject ocean_mesh_object;
-
+    private RenderTexture spectrum_texture;
+    private RenderTexture height_texture;
+    private RenderTexture fourier_texture;
+    private Mesh ocean_mesh;
+    private GameObject ocean_mesh_object;
     private bool compute_configured = false;
-    private const int N = 1024;
+    private const int N = 1024; // ocean plane resolution 
+    private const int L = 128; // ocean plane length
     private const int init_spectrum_kernel = 0;
     private const int pack_minus_k_conj_kernel = 1;
     private const int cycle_through_time_kernel = 2;
@@ -23,7 +24,9 @@ public class WaveHeightGenerator : MonoBehaviour {
         CreateFourierTexture();
         CreateHeightTexture();
         ocean_mesh = CreateOceanMesh();
+        ocean_mesh_object = transform.GetChild(0).gameObject;
         ocean_mesh_object.GetComponent<MeshFilter>().mesh = ocean_mesh;
+        ocean_mesh_object.GetComponent<MeshRenderer>().material = CreateOceanMaterial();
     }
 
     void OnDestroy() {
@@ -34,26 +37,26 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     private void Update() {
         if (!compute_configured) {
-            compute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(pack_minus_k_conj_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
-            compute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
-            compute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
-            compute.SetInt("u_N", N);
-            compute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
-            compute.SetFloat("u_wind_speed", 15f);
-            compute.SetFloat("u_L", 256f);
-            compute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
-            compute.Dispatch(pack_minus_k_conj_kernel, N / 8, N / 8, 1);
+            oceanCompute.SetTexture(init_spectrum_kernel, "spectrum_texture", spectrum_texture);
+            oceanCompute.SetTexture(pack_minus_k_conj_kernel, "spectrum_texture", spectrum_texture);
+            oceanCompute.SetTexture(cycle_through_time_kernel, "spectrum_texture", spectrum_texture);
+            oceanCompute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
+            oceanCompute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
+            oceanCompute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
+            oceanCompute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
+            oceanCompute.SetInt("u_N", N);
+            oceanCompute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
+            oceanCompute.SetFloat("u_wind_speed", 15f);
+            oceanCompute.SetFloat("u_L", (float)L);
+            oceanCompute.Dispatch(init_spectrum_kernel, N / 8, N / 8, 1);
+            oceanCompute.Dispatch(pack_minus_k_conj_kernel, N / 8, N / 8, 1);
             compute_configured = true;
         }
         float time = Time.time;
-        compute.SetFloat("u_time", time);
-        compute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
-        compute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
-        compute.Dispatch(vertical_ifft_kernel, N, 1, 1);
+        oceanCompute.SetFloat("u_time", time);
+        oceanCompute.Dispatch(cycle_through_time_kernel, N / 8, N / 8, 1);
+        oceanCompute.Dispatch(horizontal_ifft_kernel, 1, N, 1);
+        oceanCompute.Dispatch(vertical_ifft_kernel, N, 1, 1);
     }
 
     private RenderTexture CreateRenderTexture(int width, int height, int depth, RenderTextureFormat format) {
@@ -89,11 +92,10 @@ public class WaveHeightGenerator : MonoBehaviour {
         };
         Vector3[] vertices = new Vector3[N * N];
         int[] triangles = new int[(N - 1) * (N - 1) * 6];
-        const float dim = 128f;
         for (int i = 0; i < N; i++) {
-            float y = (i - N * 0.5f) * dim / N;
+            float y = (i - N * 0.5f) * L / N;
             for (int j = 0; j < N; j++) {
-                float x = (j - N * 0.5f) * dim / N;
+                float x = (j - N * 0.5f) * L / N;
                 vertices[i * N + j] = new Vector3(x, 0, y);
             }
         }
@@ -110,12 +112,6 @@ public class WaveHeightGenerator : MonoBehaviour {
                 triangles[triangleIndex + 1] = topRight;
                 triangles[triangleIndex + 2] = bottomLeft;
 
-                // Vector3 tl = vertices[topLeft];
-                // Vector3 tr = vertices[topRight];
-                // Vector3 bl = vertices[bottomLeft];
-                // Vector3 br = vertices[bottomRight];
-                // Debug.Log($"{tl}, {tr}, {bl}, {br}");
-
                 triangles[triangleIndex + 3] = topRight;
                 triangles[triangleIndex + 4] = bottomRight;
                 triangles[triangleIndex + 5] = bottomLeft;
@@ -127,5 +123,13 @@ public class WaveHeightGenerator : MonoBehaviour {
         mesh.SetVertices(vertices);
         mesh.SetTriangles(triangles, 0);
         return mesh;
+    }
+
+    private Material CreateOceanMaterial() {
+        Material mat = new Material(oceanShader);
+        mat.SetTexture("_HeightTexture", height_texture);
+        mat.SetFloat("N", (float)N);
+        mat.SetFloat("L", (float)L);
+        return mat;
     }
 }

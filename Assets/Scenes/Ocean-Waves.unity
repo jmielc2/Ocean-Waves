@@ -317,12 +317,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bddc2f7aa38f04b5788ef26bd30d5f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  compute: {fileID: 7200000, guid: 587b72cc7f37b074781c3fbfff0118a9, type: 3}
-  spectrum_texture: {fileID: 0}
-  height_texture: {fileID: 0}
-  fourier_texture: {fileID: 0}
-  ocean_mesh: {fileID: 0}
-  ocean_mesh_object: {fileID: 1171876051}
+  oceanCompute: {fileID: 7200000, guid: 587b72cc7f37b074781c3fbfff0118a9, type: 3}
+  oceanShader: {fileID: 4800000, guid: 1411cf3c8ae08431bb35b928fe1177d0, type: 3}
 --- !u!4 &1237491519
 Transform:
   m_ObjectHideFlags: 0
