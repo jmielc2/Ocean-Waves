@@ -7,6 +7,8 @@ public class WaveHeightGenerator : MonoBehaviour {
     public RenderTexture spectrum_texture;
     public RenderTexture height_texture;
     public RenderTexture fourier_texture;
+    public Mesh ocean_mesh;
+    public GameObject ocean_mesh_object;
 
     private bool compute_configured = false;
     private const int N = 1024;
@@ -20,6 +22,8 @@ public class WaveHeightGenerator : MonoBehaviour {
         CreateSpectrumTexture();
         CreateFourierTexture();
         CreateHeightTexture();
+        ocean_mesh = CreateOceanMesh();
+        ocean_mesh_object.GetComponent<MeshFilter>().mesh = ocean_mesh;
     }
 
     void OnDestroy() {
@@ -75,5 +79,57 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     private void CreateHeightTexture() {
         height_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RFloat);
+    }
+
+    private Mesh CreateOceanMesh() {
+        var mesh = new Mesh() { 
+            name = "Ocean Mesh",
+            subMeshCount = 1
+        };
+        Vector3[] vertices = new Vector3[N * N];
+        int[] triangles = new int[(N - 1) * 2 * (N - 1) * 3];
+        const float dim = 256f;
+        for (int i = 0; i < N; i++) {
+            float y = (i - N *0.5f) * dim / N;
+            for (int j = 0; j < N; j++) {
+                float x = (j - N * 0.5f) * dim / N;
+                vertices[i * N + j] = new Vector3(x, 0, y);
+            }
+        }
+        
+        int triangleIndex = 0;
+        for (int i = 0; i < N - 1; i++) { // i is mesh point index in first row
+            // First row of quads
+            triangles[triangleIndex] = i;
+            triangles[triangleIndex + 1] = i + 1;
+            triangles[triangleIndex + 2] = i + N;
+            triangleIndex += 3;
+        }
+
+        for (int i = 1; i < N - 1; i++) { // i is mesh row index
+            for (int j = 0; j < N - 1; j++) { // j is mesh point index in current row
+                triangles[triangleIndex] = i * N + j;
+                triangles[triangleIndex + 1] = (i - 1) * N + j + 1;
+                triangles[triangleIndex + 2] = i * N + j + 1;
+
+                triangles[triangleIndex + 3] = i * N + j;
+                triangles[triangleIndex + 4] = i * N + j + 1;
+                triangles[triangleIndex + 5] = (i + 1) * N + j;
+                triangleIndex += 6;
+            }
+        }
+
+            // Last row of quads
+        const int baseIndex = N * (N - 1);
+        for (int i = 0; i < N - 1; i++) { // i is mesh point index in last row
+            triangles[triangleIndex] = baseIndex + i;
+            triangles[triangleIndex + 1] = baseIndex - N + i + 1;
+            triangles[triangleIndex + 2] = baseIndex + i + 1;
+            triangleIndex += 3;
+        }
+
+        mesh.vertices = vertices;
+        mesh.triangles = triangles;
+        return mesh;
     }
 }
