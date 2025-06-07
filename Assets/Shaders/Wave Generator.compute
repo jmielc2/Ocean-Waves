@@ -9,7 +9,7 @@
 
 RWTexture2D<float4> spectrum_texture;
 RWTexture2D<float2> fourier_texture;
-RWTexture2D<float> height_texture;
+RWTexture2D<float4> displacement_texture;
 
 uniform uint u_N;
 uniform float u_L;
@@ -53,7 +53,7 @@ float PhillipsSpectrum(float2 wavevector) {
     const float result = 0.0081f * exp(-1.0f * inv_k_times_L * inv_k_times_L) * inv_k * inv_k * inv_k * inv_k * wind_dot_wavedirection * wind_dot_wavedirection;
     // This check is what gave me the most trouble. Not having it results in NaN values in the spectrum texture
     // The spectrum texture will look fine, but the IFFT will produce a black texture because of the NaN
-    // Spent so much time checking and double checking my math in the IFFTs but it was up here all along! :')
+    // Spent so much time checking and double checking my math in the IFFTs but it was up here all along!
     if (isNan(result) || result > 1000000.0f) { 
         return 0.0f;
     }
@@ -179,7 +179,13 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     float2 euler_formula;
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
-    fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
+    // fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
+    float2 h_hat = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
+    float2 h_hat_x = ComplexMul(float2(0.0f, -wavevector.x / magnitude), h_hat);
+    float2 h_hat_y = ComplexMul(float2(0.0f, -wavevector.y / magnitude), h_hat);
+    fourier_texture[id.xy] = float4(
+        h_hat, 
+    )
 }
 
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
@@ -197,5 +203,5 @@ void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
     const float perms[2] = { 1.0f, -1.0f };
     const int index = (id.x + id.y) & 0x1;
     const float height = result.x * perms[index];
-    height_texture[id.xy] = height;
+    displacement_texture[id.xy] = height;
 }

@@ -1,6 +1,6 @@
 Shader "Custom/Ocean Shader" {
     Properties {
-        _HeightTexture ("Texture", 2D) = "black" {}
+        displacement_texture ("Texture", 2D) = "black" {}
     }
 
     SubShader {
@@ -14,7 +14,7 @@ Shader "Custom/Ocean Shader" {
 
             #include "UnityCG.cginc"
 
-            Texture2D<float> _HeightTexture;
+            Texture2D<float4> displacement_texture;
             float N;
             float L;
 
@@ -29,7 +29,7 @@ Shader "Custom/Ocean Shader" {
 
             FragmentInput vertShader (VertexInput v) {
                 float2 pos = ((v.vertex / L) + 0.5f) * N;
-                float height = _HeightTexture[pos];
+                float height = displacement_texture[pos];
                 v.vertex.y += height * 500.0f;
                 FragmentInput o;
                 o.vertex = UnityObjectToClipPos(v.vertex);

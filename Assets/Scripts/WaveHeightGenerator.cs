@@ -5,8 +5,10 @@ public class WaveHeightGenerator : MonoBehaviour {
     public ComputeShader oceanCompute;
     public Shader oceanShader;
 
+    public RenderTexture normal_texture;
+
     private RenderTexture spectrum_texture;
-    private RenderTexture height_texture;
+    public RenderTexture displacement_texture;
     private RenderTexture fourier_texture;
     private Mesh ocean_mesh;
     private GameObject ocean_mesh_object;
@@ -22,17 +24,20 @@ public class WaveHeightGenerator : MonoBehaviour {
     void Start() {
         CreateSpectrumTexture();
         CreateFourierTexture();
-        CreateHeightTexture();
+        CreateDisplacementTexture();
+        CreateNormalTexture();
         ocean_mesh = CreateOceanMesh();
         ocean_mesh_object = transform.GetChild(0).gameObject;
         ocean_mesh_object.GetComponent<MeshFilter>().mesh = ocean_mesh;
         ocean_mesh_object.GetComponent<MeshRenderer>().material = CreateOceanMaterial();
     }
 
-    void OnDestroy() {
+    void OnDestroy()
+    {
         spectrum_texture.Release();
         fourier_texture.Release();
-        height_texture.Release();
+        displacement_texture.Release();
+        normal_texture.Release();
     }
 
     private void Update() {
@@ -43,7 +48,7 @@ public class WaveHeightGenerator : MonoBehaviour {
             oceanCompute.SetTexture(cycle_through_time_kernel, "fourier_texture", fourier_texture);
             oceanCompute.SetTexture(horizontal_ifft_kernel, "fourier_texture", fourier_texture);
             oceanCompute.SetTexture(vertical_ifft_kernel, "fourier_texture", fourier_texture);
-            oceanCompute.SetTexture(vertical_ifft_kernel, "height_texture", height_texture);
+            oceanCompute.SetTexture(vertical_ifft_kernel, "displacement_texture", displacement_texture);
             oceanCompute.SetInt("u_N", N);
             oceanCompute.SetVector("u_wind_direction", new Vector4(1, 1, 0, 0).normalized);
             oceanCompute.SetFloat("u_wind_speed", 15f);
@@ -80,29 +85,39 @@ public class WaveHeightGenerator : MonoBehaviour {
         fourier_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RGFloat);
     }
 
-    private void CreateHeightTexture() {
-        height_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.RFloat);
+    private void CreateDisplacementTexture() {
+        displacement_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.ARGBFloat);
     }
 
-    private Mesh CreateOceanMesh() {
-        var mesh = new Mesh() { 
+    private void CreateNormalTexture() {
+        normal_texture = CreateRenderTexture(N, N, 0, RenderTextureFormat.ARGBFloat);
+    }
+
+    private Mesh CreateOceanMesh()
+    {
+        var mesh = new Mesh()
+        {
             name = "Ocean Mesh",
             subMeshCount = 1,
             indexFormat = IndexFormat.UInt32
         };
         Vector3[] vertices = new Vector3[N * N];
         int[] triangles = new int[(N - 1) * (N - 1) * 6];
-        for (int i = 0; i < N; i++) {
+        for (int i = 0; i < N; i++)
+        {
             float y = (i - N * 0.5f) * L / N;
-            for (int j = 0; j < N; j++) {
+            for (int j = 0; j < N; j++)
+            {
                 float x = (j - N * 0.5f) * L / N;
                 vertices[i * N + j] = new Vector3(x, 0, y);
             }
         }
-        
+
         int triangleIndex = 0;
-        for (int i = 0; i < N - 1; i++) { // i is mesh row index
-            for (int j = 0; j < N - 1; j++) { // j is mesh point index in current row
+        for (int i = 0; i < N - 1; i++)
+        { // i is mesh row index
+            for (int j = 0; j < N - 1; j++)
+            { // j is mesh point index in current row
                 int topLeft = i * N + j;
                 int topRight = i * N + j + 1;
                 int bottomLeft = (i + 1) * N + j;
@@ -127,7 +142,7 @@ public class WaveHeightGenerator : MonoBehaviour {
 
     private Material CreateOceanMaterial() {
         Material mat = new Material(oceanShader);
-        mat.SetTexture("_HeightTexture", height_texture);
+        mat.SetTexture("displacement_texture", displacement_texture);
         mat.SetFloat("N", (float)N);
         mat.SetFloat("L", (float)L);
         return mat;
