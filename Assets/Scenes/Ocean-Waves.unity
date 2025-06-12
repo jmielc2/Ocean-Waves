@@ -198,8 +198,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 5, z: 0}
+  m_LocalRotation: {x: -0.064840294, y: -0.9172511, z: 0.16720217, w: -0.35565385}
+  m_LocalPosition: {x: -59.469864, y: 3.9791164, z: 62.653202}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -319,6 +319,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   oceanCompute: {fileID: 7200000, guid: 587b72cc7f37b074781c3fbfff0118a9, type: 3}
   oceanShader: {fileID: 4800000, guid: 1411cf3c8ae08431bb35b928fe1177d0, type: 3}
+  normal_texture: {fileID: 0}
+  displacement_texture: {fileID: 0}
 --- !u!4 &1237491519
 Transform:
   m_ObjectHideFlags: 0

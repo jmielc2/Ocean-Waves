@@ -8,8 +8,10 @@
 #define G 9.81f
 
 RWTexture2D<float4> spectrum_texture;
-RWTexture2D<float2> fourier_texture;
+RWTexture2D<float2> vertical_fourier_texture;
+RWTexture2D<float4> horizontal_fourier_texture;
 RWTexture2D<float4> displacement_texture;
+RWTexture2D<float4> normal_texture;
 
 uniform uint u_N;
 uniform float u_L;
@@ -20,7 +22,7 @@ uniform float u_wind_speed;
 // IFFT Defines
 #define SIZE 1024
 #define LOG2_SIZE 10
-groupshared float2 butterfly_buffer[2][SIZE];
+groupshared float4 butterfly_buffer[2][SIZE];
 
 // Huga Elias integer hash
 float Hash(uint n) {
@@ -121,7 +123,7 @@ void ButterflyValues(int step, int index, out uint2 indices, out float2 twiddle)
     }
 }
 
-float2 IFFT(uint index, float2 value) {
+float4 IFFT(uint index, float4 value) {
     bool butterfly_direction = false;
     butterfly_buffer[butterfly_direction][index] = value;
     GroupMemoryBarrierWithGroupSync();
@@ -131,13 +133,24 @@ float2 IFFT(uint index, float2 value) {
     [unroll]
     for (int step = 0; step < LOG2_SIZE; ++step) {
         ButterflyValues(step, index, indices, twiddle);
-        const float2 a = butterfly_buffer[butterfly_direction][indices.x];
-        const float2 b = butterfly_buffer[butterfly_direction][indices.y];
-        butterfly_buffer[!butterfly_direction][index] = ComplexAdd(a, ComplexMul(twiddle, b));
+        const float4 a = butterfly_buffer[butterfly_direction][indices.x];
+        const float4 b = butterfly_buffer[butterfly_direction][indices.y];
+        butterfly_buffer[!butterfly_direction][index] = float4(
+            ComplexAdd(a.xy, ComplexMul(twiddle, b.xy)),
+            ComplexAdd(a.zw, ComplexMul(twiddle, b.zw))
+        );
         butterfly_direction = !butterfly_direction;
         GroupMemoryBarrierWithGroupSync();
     }
     return butterfly_buffer[butterfly_direction][index];
+}
+
+float4 CalcNormal(float2 displacement) {
+    return normalize(
+        float4(
+            -displacement.x, 1.0f, -displacement.y, 0.0f
+        )
+    );
 }
 
 /*
@@ -179,29 +192,38 @@ void CycleThroughTime(uint3 id : SV_DispatchThreadID) {
     float2 euler_formula;
     sincos(w * u_time, euler_formula.y, euler_formula.x);
     const float2 euler_formula_conj = ComplexConj(euler_formula);
-    // fourier_texture[id.xy] = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
-    float2 h_hat = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
-    float2 h_hat_x = ComplexMul(float2(0.0f, -wavevector.x / magnitude), h_hat);
-    float2 h_hat_y = ComplexMul(float2(0.0f, -wavevector.y / magnitude), h_hat);
-    fourier_texture[id.xy] = float4(
-        h_hat, 
-    )
+    const float2 height = ComplexAdd(ComplexMul(amplitudes.xy, euler_formula), ComplexMul(ComplexConj(amplitudes.zw), euler_formula_conj));
+    vertical_fourier_texture[id.xy] = height;
+    const float2 dx = ComplexMul(height, float2(0.0f, -wavevector.x));
+    const float2 dz = ComplexMul(height, float2(0.0f, -wavevector.y));
+    horizontal_fourier_texture[id.xy] = float4(dx, dz);
 }
 
 // Referenced from Garrett Gunnell's implementation of IFFT in his water simulation
 [numthreads(SIZE, 1, 1)]
 void HorizontalIFFT(uint3 id : SV_DispatchThreadID) {
-    float2 result = IFFT(id.x, fourier_texture[id.xy]) / float(SIZE);
-    fourier_texture[id.xy] = result;
+    // Vertical Component
+    const float4 vertical = IFFT(id.x, float4(vertical_fourier_texture[id.xy], 0, 0));
+    vertical_fourier_texture[id.xy] = vertical.xy;
+    
+    // Horizontal Component
+    const float4 horizontal = IFFT(id.x, horizontal_fourier_texture[id.xy]);
+    horizontal_fourier_texture[id.xy] = horizontal;
 }
 
 [numthreads(1, SIZE, 1)]
 void VerticalIFFT(uint3 id : SV_DispatchThreadID) {
-    const float2 result = IFFT(id.y, fourier_texture[id.xy]) / float(SIZE);
+    // Vertical Component
+    const float4 vertical = IFFT(id.y, float4(vertical_fourier_texture[id.xy], 0, 0)) / float(u_L);
+    
+    // Horizontal Component
+    const float4 horizontal = IFFT(id.y, horizontal_fourier_texture[id.xy]) / float(u_L);
 
     // Calc Height
     const float perms[2] = { 1.0f, -1.0f };
     const int index = (id.x + id.y) & 0x1;
-    const float height = result.x * perms[index];
-    displacement_texture[id.xy] = height;
+    const float4 displacement = float4(horizontal.x, vertical.x, horizontal.z, 0) * perms[index];
+    displacement_texture[id.xy] = displacement;
+    normal_texture[id.xy] = CalcNormal(displacement.xz);
+
 }
